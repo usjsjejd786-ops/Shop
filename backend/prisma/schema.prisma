@@ -1,0 +1,192 @@
+// Schema do banco de dados - Sistema Pet Shop / Veterinária
+// ORM: Prisma | Banco: PostgreSQL
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  CLIENTE
+  VETERINARIO
+  ADMINISTRADOR
+}
+
+enum AppointmentStatus {
+  PENDENTE
+  CONFIRMADO
+  EM_ANDAMENTO
+  CONCLUIDO
+  CANCELADO
+}
+
+enum MovementType {
+  ENTRADA
+  SAIDA
+}
+
+// Usuário único para os três perfis (Cliente, Veterinário, Administrador).
+// Simplificação intencional: em vez de uma tabela "Veterinarian" separada,
+// o veterinário é um User com role = VETERINARIO e um perfil opcional
+// (VeterinarianProfile) com dados específicos da profissão (especialidade, CRMV).
+// Isso evita duplicar autenticação/senha em duas tabelas diferentes.
+model User {
+  id            String    @id @default(uuid())
+  name          String
+  email         String    @unique
+  passwordHash  String
+  role          Role      @default(CLIENTE)
+  phone         String?
+  active        Boolean   @default(true)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  // Relação: Cliente possui Pets
+  pets                 Pet[]              @relation("ClientPets")
+
+  // Relação: Cliente possui Appointments (como cliente)
+  clientAppointments   Appointment[]      @relation("ClientAppointments")
+
+  // Relação: Veterinário possui Appointments (como veterinário)
+  vetAppointments      Appointment[]      @relation("VetAppointments")
+
+  // Relação: Veterinário possui MedicalRecords
+  vetMedicalRecords    MedicalRecord[]    @relation("VetMedicalRecords")
+
+  // Perfil extra caso o usuário seja veterinário
+  veterinarianProfile  VeterinarianProfile?
+
+  inventoryMovements   InventoryMovement[]
+
+  @@map("users")
+}
+
+model VeterinarianProfile {
+  id             String   @id @default(uuid())
+  userId         String   @unique
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  specialty      String?
+  licenseNumber  String?  // CRMV
+
+  @@map("veterinarian_profiles")
+}
+
+model Pet {
+  id           String   @id @default(uuid())
+  name         String
+  species      String
+  breed        String?
+  sex          String?
+  birthDate    DateTime?
+  weight       Float?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  ownerId      String
+  owner        User     @relation("ClientPets", fields: [ownerId], references: [id], onDelete: Cascade)
+
+  appointments   Appointment[]
+  medicalRecords MedicalRecord[]
+
+  @@map("pets")
+}
+
+model Service {
+  id          String   @id @default(uuid())
+  name        String
+  description String?
+  price       Float
+  duration    Int      // duração em minutos
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  appointments Appointment[]
+
+  @@map("services")
+}
+
+model Appointment {
+  id             String            @id @default(uuid())
+  date           DateTime          // data e hora do agendamento
+  status         AppointmentStatus @default(PENDENTE)
+  notes          String?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  clientId       String
+  client         User              @relation("ClientAppointments", fields: [clientId], references: [id])
+
+  petId          String
+  pet            Pet               @relation(fields: [petId], references: [id])
+
+  veterinarianId String?
+  veterinarian   User?             @relation("VetAppointments", fields: [veterinarianId], references: [id])
+
+  serviceId      String
+  service        Service           @relation(fields: [serviceId], references: [id])
+
+  medicalRecord  MedicalRecord?
+
+  @@index([veterinarianId, date])
+  @@map("appointments")
+}
+
+model MedicalRecord {
+  id             String   @id @default(uuid())
+  date           DateTime @default(now())
+  diagnosis      String?
+  observations   String?
+  treatment      String?
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  petId          String
+  pet            Pet      @relation(fields: [petId], references: [id])
+
+  veterinarianId String
+  veterinarian   User     @relation("VetMedicalRecords", fields: [veterinarianId], references: [id])
+
+  appointmentId  String?  @unique
+  appointment    Appointment? @relation(fields: [appointmentId], references: [id])
+
+  @@map("medical_records")
+}
+
+model InventoryProduct {
+  id            String   @id @default(uuid())
+  name          String
+  category      String?
+  quantity      Int      @default(0)
+  minQuantity   Int      @default(0)
+  price         Float
+  description   String?
+  active        Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  movements     InventoryMovement[]
+
+  @@map("inventory_products")
+}
+
+model InventoryMovement {
+  id          String       @id @default(uuid())
+  type        MovementType
+  quantity    Int
+  reason      String?
+  createdAt   DateTime     @default(now())
+
+  productId   String
+  product     InventoryProduct @relation(fields: [productId], references: [id])
+
+  userId      String
+  user        User         @relation(fields: [userId], references: [id])
+
+  @@map("inventory_movements")
+}
